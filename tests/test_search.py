@@ -12,8 +12,8 @@ def test_search_items_basic(mock_zotero: Any, sample_item: dict[str, Any]) -> No
     result = search_items("test")
 
     assert "Test Article" in result
-    assert "Item Key: ABCD1234" in result
-    assert "Authors: Doe, John; Smith, Jane" in result
+    assert "**Key**: `ABCD1234`" in result
+    assert "**Authors**: Doe, John; Smith, Jane" in result
     assert "This is a test abstract" in result
 
     # Verify search parameters

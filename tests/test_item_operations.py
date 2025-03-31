@@ -11,15 +11,18 @@ def test_get_item_metadata(mock_zotero: Any, sample_item: dict[str, Any]) -> Non
 
     result = get_item_metadata("ABCD1234")
 
-    assert "Title: Test Article" in result
+    assert "## Test Article" in result
+    assert "Item Key: `ABCD1234`" in result
     assert "Type: journalArticle" in result
     assert "Date: 2024" in result
-    assert "Authors: Doe, John; Smith, Jane" in result
-    assert "Abstract:\nThis is a test abstract" in result
-    assert "Tags: test, article" in result
+    assert "Doe, John; Smith, Jane" in result
+    assert "### Abstract" in result
+    assert "This is a test abstract" in result
+    assert "### Tags" in result
+    assert "`test`" in result and "`article`" in result
     assert "URL: https://example.com" in result
     assert "DOI: 10.1234/test" in result
-    assert "Number of notes: 2" in result
+    assert "Number of notes/attachments: 2" in result
 
 
 def test_get_item_metadata_not_found(mock_zotero: Any) -> None:
