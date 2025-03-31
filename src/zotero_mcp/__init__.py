@@ -12,12 +12,48 @@ def format_item(item: dict[str, Any]) -> str:
     """Format a Zotero item's metadata as a readable string optimized for LLM consumption"""
     data = item["data"]
     item_key = item["key"]
-
+    item_type = data.get("itemType", "unknown")
+    
+    # Special handling for notes
+    if item_type == "note":
+        # Get note content
+        note_content = data.get("note", "")
+        # Strip HTML tags for cleaner text (simple approach)
+        note_content = note_content.replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
+        note_content = note_content.replace("<strong>", "**").replace("</strong>", "**")
+        note_content = note_content.replace("<em>", "*").replace("</em>", "*")
+        
+        # Format note with clear sections
+        formatted = [
+            "## 📝 Note",
+            f"Item Key: `{item_key}`",
+        ]
+        
+        # Add parent item reference if available
+        if parent_item := data.get("parentItem"):
+            formatted.append(f"Parent Item: `{parent_item}`")
+        
+        # Add date if available
+        if date := data.get("dateModified"):
+            formatted.append(f"Last Modified: {date}")
+        
+        # Add tags with formatting for better visibility
+        if tags := data.get("tags"):
+            tag_list = [f"`{tag['tag']}`" for tag in tags]
+            formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
+        
+        # Add note content
+        formatted.append(f"\n### Note Content\n{note_content}")
+        
+        return "\n".join(formatted)
+    
+    # Regular item handling (non-notes)
+    
     # Basic metadata with key for easy reference
     formatted = [
         f"## {data.get('title', 'Untitled')}",
         f"Item Key: `{item_key}`",
-        f"Type: {data.get('itemType', 'unknown')}",
+        f"Type: {item_type}",
         f"Date: {data.get('date', 'No date')}",
     ]
 
@@ -185,10 +221,61 @@ def search_items(
     for i, item in enumerate(results):
         data = item["data"]
         item_key = item.get("key", "")
-
-        # Get basic metadata
-        title = data.get("title", "Untitled")
         item_type = data.get("itemType", "unknown")
+
+        # Special handling for notes
+        if item_type == "note":
+            # Get note content
+            note_content = data.get("note", "")
+            # Strip HTML tags for cleaner text (simple approach)
+            note_content = note_content.replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
+            note_content = note_content.replace("<strong>", "**").replace("</strong>", "**")
+            note_content = note_content.replace("<em>", "*").replace("</em>", "*")
+            
+            # Extract a title from the first line if possible, otherwise use first few words
+            title_preview = ""
+            if note_content:
+                lines = note_content.strip().split("\n")
+                first_line = lines[0].strip()
+                if first_line:
+                    # Use first line if it's reasonably short, otherwise use first few words
+                    if len(first_line) <= 50:
+                        title_preview = first_line
+                    else:
+                        words = first_line.split()
+                        title_preview = " ".join(words[:5]) + "..."
+            
+            # Create a good title for the note
+            note_title = title_preview if title_preview else "Note"
+            
+            # Get a preview of the note content (truncated)
+            preview = note_content.strip()
+            if len(preview) > 150:
+                preview = preview[:147] + "..."
+                
+            # Format the note entry
+            entry = [
+                f"## {i + 1}. 📝 {note_title}",
+                f"**Type**: Note | **Key**: `{item_key}`",
+                f"\n{preview}",
+            ]
+            
+            # Add parent item reference if available
+            if parent_item := data.get("parentItem"):
+                entry.insert(2, f"**Parent Item**: `{parent_item}`")
+                
+            # Add tags if present (limited to first 5)
+            if tags := data.get("tags"):
+                tag_list = [f"`{tag['tag']}`" for tag in tags[:5]]
+                if len(tags) > 5:
+                    tag_list.append("...")
+                entry.append(f"\n**Tags**: {' '.join(tag_list)}")
+                
+            formatted_results.append("\n".join(entry))
+            continue
+            
+        # Regular item processing (non-notes)
+        title = data.get("title", "Untitled")
         date = data.get("date", "")
 
         # Format primary creators (limited to first 3)
