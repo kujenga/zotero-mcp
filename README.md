@@ -49,7 +49,7 @@ To use this with Claude Desktop and a direct python install with [`uvx`](https:/
   "mcpServers": {
     "zotero": {
       "command": "uvx",
-      "args": ["--update", "zotero-mcp"],
+      "args": ["--upgrade", "zotero-mcp"],
       "env": {
         "ZOTERO_LOCAL": "true",
         "ZOTERO_API_KEY": "",
@@ -60,7 +60,7 @@ To use this with Claude Desktop and a direct python install with [`uvx`](https:/
 }
 ```
 
-The `--update` flag is optional and will pull the latest version when new ones are available. If you don't have `uvx` installed you can use `pipx run` instead, or clone this repository locally and use the instructions in [Development](#development) below.
+The `--upgrade` flag is optional and will pull the latest version when new ones are available. If you don't have `uvx` installed you can use `pipx run` instead, or clone this repository locally and use the instructions in [Development](#development) below.
 
 ### Docker with Zotero Web API
 
