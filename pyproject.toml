@@ -17,7 +17,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "mcp[cli]>=1.2.1",
+    "mcp[cli]>=2,<3",
     "pydantic>=2.10.6",
     "python-dotenv>=1.0.1",
     "pyzotero>=1.6.8",

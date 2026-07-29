@@ -1,11 +1,11 @@
 from typing import Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from zotero_mcp.client import get_attachment_details, get_zotero_client
 
 # Create an MCP server
-mcp = FastMCP("Zotero")
+mcp = MCPServer("Zotero")
 
 
 def format_item(item: dict[str, Any]) -> str:
