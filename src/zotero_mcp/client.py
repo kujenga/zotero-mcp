@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from pyzotero import zotero
 
-
 # Load environment variables
 load_dotenv()
 

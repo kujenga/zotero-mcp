@@ -135,7 +135,7 @@ def get_item_metadata(item_key: str) -> str:
             return f"No item found with key: {item_key}"
         return format_item(item)
     except Exception as e:
-        return f"Error retrieving item metadata: {str(e)}"
+        return f"Error retrieving item metadata: {e!s}"
 
 
 @mcp.tool(
@@ -182,7 +182,7 @@ def get_item_fulltext(item_key: str) -> str:
         return f"{header}{attachment_info}{full_text}"
 
     except Exception as e:
-        return f"Error retrieving item full text: {str(e)}"
+        return f"Error retrieving item full text: {e!s}"
 
 
 @mcp.tool(
