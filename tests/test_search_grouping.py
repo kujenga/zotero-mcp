@@ -1,6 +1,7 @@
 """Tests for resolving child-item search hits back to the work they belong to"""
 
 from typing import Any
+from unittest.mock import MagicMock
 
 from zotero_mcp import group_by_work, search_items
 
@@ -131,6 +132,85 @@ def test_resolution_survives_a_failed_lookup(mock_zotero: Any) -> None:
     result = search_items("test", qmode="everything")
 
     assert "Some PDF" in result
+
+
+def with_total(mock_zotero: Any, total: int) -> None:
+    """Give the mocked client a Total-Results header, as Zotero returns"""
+    mock_zotero.request = MagicMock()
+    mock_zotero.request.headers = {"Total-Results": str(total)}
+
+
+def test_truncated_results_report_the_total(mock_zotero: Any) -> None:
+    """A capped result set says so, since that is when the caller should re-query"""
+    mock_zotero.items.return_value = [work("PARENT01"), work("PARENT02")]
+    with_total(mock_zotero, 137)
+
+    result = search_items("test", limit=2)
+
+    assert "first 2 of 137 total matches" in result
+    assert "raise `limit`" in result
+
+
+def test_complete_results_say_nothing_extra(mock_zotero: Any) -> None:
+    """A complete result set is not qualified, so silence means exhausted"""
+    mock_zotero.items.return_value = [work("PARENT01"), work("PARENT02")]
+    with_total(mock_zotero, 2)
+
+    result = search_items("test", limit=10)
+
+    assert "total matches" not in result
+    assert "Found 2 items." in result
+
+
+def test_grouped_and_truncated_reports_both(mock_zotero: Any) -> None:
+    """Grouping and truncation are distinct facts and both get reported"""
+    mock_zotero.items.side_effect = [
+        [
+            child("ATT00001", "PARENT01"),
+            child("ATT00002", "PARENT01"),
+            child("ATT00003", "PARENT02"),
+        ],
+        [work("PARENT01"), work("PARENT02")],
+    ]
+    with_total(mock_zotero, 99)
+
+    result = search_items("test", qmode="everything", limit=3)
+
+    assert "Found 2 items across 3 matches" in result
+    assert "first 3 of 99 total matches" in result
+
+
+def test_fewer_items_than_limit_can_still_be_truncated(mock_zotero: Any) -> None:
+    """The case the item count alone cannot express: 4 items from a full page"""
+    mock_zotero.items.side_effect = [
+        [child(f"ATT0000{i}", "PARENT01") for i in range(1, 11)],
+        [work("PARENT01")],
+    ]
+    with_total(mock_zotero, 1093)
+
+    result = search_items("test", qmode="everything", limit=10)
+
+    assert "Found 1 items across 10 matches" in result
+    assert "first 10 of 1093 total matches" in result
+
+
+def test_falls_back_to_limit_when_header_missing(mock_zotero: Any) -> None:
+    """Without Total-Results, a full page is still flagged as possibly truncated"""
+    mock_zotero.items.return_value = [work("PARENT01"), work("PARENT02")]
+
+    result = search_items("test", limit=2)
+
+    assert "reached the limit of 2 matches" in result
+
+
+def test_no_truncation_note_when_under_limit_without_header(mock_zotero: Any) -> None:
+    """A short page without the header is treated as complete"""
+    mock_zotero.items.return_value = [work("PARENT01")]
+
+    result = search_items("test", limit=10)
+
+    assert "reached the limit" not in result
+    assert "total matches" not in result
 
 
 def test_standalone_note_is_unaffected(mock_zotero: Any) -> None:

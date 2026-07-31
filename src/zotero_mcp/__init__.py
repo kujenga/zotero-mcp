@@ -464,6 +464,21 @@ def resolve_parents(zot: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
     return resolved
 
 
+def get_total_results(zot: Any) -> int | None:
+    """Get the total match count Zotero reported for the most recent request.
+
+    Comparing this against the results in hand is what distinguishes a complete
+    result set from one that `limit` truncated. Only reflects the request most
+    recently made through this client, so read it before issuing another.
+    """
+    try:
+        return int(zot.request.headers["Total-Results"])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # Header absent or unparseable; callers fall back to comparing against
+        # the requested limit.
+        return None
+
+
 def describe_child_match(child: dict[str, Any]) -> str:
     """Describe where a child item's match occurred, for a search result line"""
     data = child["data"]
@@ -571,9 +586,11 @@ def search_items(
         int | None,
         Field(
             description=(
-                "Maximum number of results. Worth raising when qmode is 'everything', "
-                "where several attachments or notes belonging to one work can each "
-                "match separately."
+                "Maximum number of matches to retrieve. This caps matches rather "
+                "than items, and several attachments or notes belonging to one work "
+                "can each match separately, so a search can return fewer items than "
+                "this number while still having more to fetch. The result header "
+                "reports the total whenever that happens."
             )
         ),
     ] = 10,
@@ -593,16 +610,32 @@ def search_items(
     if not results:
         return "No items found matching your query."
 
+    # Read before resolving parents, which issues further requests and so
+    # replaces the response this reflects.
+    total_matches = get_total_results(zot)
+    matched = len(results)
+
     groups = group_by_work(results, resolve_parents(zot, results))
 
     # Header with search info
-    if len(groups) == len(results):
+    if len(groups) == matched:
         found = f"Found {len(groups)} items."
     else:
         found = (
-            f"Found {len(groups)} items across {len(results)} matches, "
+            f"Found {len(groups)} items across {matched} matches, "
             "some of which matched inside attachments or notes."
         )
+
+    # Say explicitly when there is more to fetch. Item count alone cannot convey
+    # this: grouping means a full page of matches can yield fewer items than
+    # requested, so a short list is not evidence the result set was exhausted.
+    if total_matches is not None and total_matches > matched:
+        found += (
+            f" These are the first {matched} of {total_matches} total matches"
+            " -- raise `limit` to see the rest."
+        )
+    elif total_matches is None and limit is not None and matched >= limit:
+        found += f" This reached the limit of {limit} matches, so there may be more."
     header = [
         f"# Search Results for: '{query}'",
         found + (f" Using tag filter: {tag}" if tag else ""),
