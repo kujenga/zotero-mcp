@@ -43,6 +43,43 @@ def sample_item() -> dict[str, Any]:
 
 
 @pytest.fixture
+def sample_annotation() -> dict[str, Any]:
+    """Fixture that returns a sample Zotero annotation item"""
+    return {
+        "key": "ANNO1234",
+        "data": {
+            "key": "ANNO1234",
+            "itemType": "annotation",
+            "parentItem": "XYZ789",
+            "annotationType": "highlight",
+            "annotationText": "The highlighted passage",
+            "annotationComment": "A comment on the passage",
+            "annotationColor": "#2ea8e5",
+            "annotationPageLabel": "7",
+            "dateModified": "2024-01-01T00:00:00Z",
+            "tags": [{"tag": "important"}],
+        },
+    }
+
+
+@pytest.fixture
+def legacy_item() -> dict[str, Any]:
+    """Sample item as an older Zotero returns it: no citationKey, no PMID/PMCID,
+    and a Better BibTeX citation key pinned into the Extra field."""
+    return {
+        "key": "OLD12345",
+        "data": {
+            "key": "OLD12345",
+            "itemType": "journalArticle",
+            "title": "Legacy Article",
+            "date": "2019",
+            "publicationTitle": "Journal of Legacy Studies",
+            "extra": "Citation Key: doe2019legacy\nPMID: 12345678",
+        },
+    }
+
+
+@pytest.fixture
 def sample_attachment() -> dict[str, Any]:
     """Fixture that returns a sample Zotero attachment item"""
     return {
