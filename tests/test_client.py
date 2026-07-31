@@ -4,6 +4,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+
 from zotero_mcp.client import get_zotero_client
 
 
@@ -82,21 +83,23 @@ def test_get_zotero_client_local_mode(mock_env_vars_local):
 
 def test_get_zotero_client_local_mode_with_library_id():
     """Test client initialization in local mode with custom library ID"""
-    with patch.dict(
-        os.environ,
-        {
-            "ZOTERO_LIBRARY_ID": "custom_id",
-            "ZOTERO_LIBRARY_TYPE": "user",
-            "ZOTERO_API_KEY": "",
-            "ZOTERO_LOCAL": "true",
-        },
-        clear=True,
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "ZOTERO_LIBRARY_ID": "custom_id",
+                "ZOTERO_LIBRARY_TYPE": "user",
+                "ZOTERO_API_KEY": "",
+                "ZOTERO_LOCAL": "true",
+            },
+            clear=True,
+        ),
+        patch("zotero_mcp.client.zotero.Zotero") as mock_zotero,
     ):
-        with patch("zotero_mcp.client.zotero.Zotero") as mock_zotero:
-            get_zotero_client()
-            mock_zotero.assert_called_once_with(
-                library_id="custom_id",
-                library_type="user",
-                api_key=None,
-                local=True,
-            )
+        get_zotero_client()
+        mock_zotero.assert_called_once_with(
+            library_id="custom_id",
+            library_type="user",
+            api_key=None,
+            local=True,
+        )
