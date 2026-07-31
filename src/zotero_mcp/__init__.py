@@ -134,7 +134,10 @@ def get_item_metadata(item_key: str) -> str:
         if not item:
             return f"No item found with key: {item_key}"
         return format_item(item)
-    except Exception as e:
+    # Broad catch is deliberate at an MCP tool boundary: an escaping exception
+    # aborts the tool call, whereas an error string lets the model see what
+    # went wrong and recover.
+    except Exception as e:  # noqa: BLE001
         return f"Error retrieving item metadata: {e!s}"
 
 
@@ -181,7 +184,8 @@ def get_item_fulltext(item_key: str) -> str:
         # Combine all sections
         return f"{header}{attachment_info}{full_text}"
 
-    except Exception as e:
+    # See get_item_metadata: errors are reported to the caller, not raised.
+    except Exception as e:  # noqa: BLE001
         return f"Error retrieving item full text: {e!s}"
 
 

@@ -1,9 +1,12 @@
+import logging
 import os
 from typing import Any
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from pyzotero import zotero
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -95,6 +98,13 @@ def get_attachment_details(
                 content_type=others[0][1],
             )
     except Exception:
-        pass
+        # Best-effort lookup: callers treat a missing attachment as a normal
+        # outcome, so log for diagnosis rather than surfacing the failure and
+        # losing the metadata we can still return.
+        logger.debug(
+            "Failed to resolve attachments for item %s",
+            data.get("key", ""),
+            exc_info=True,
+        )
 
     return None
