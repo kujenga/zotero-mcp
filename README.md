@@ -150,23 +150,13 @@ npx @modelcontextprotocol/inspector \
 - https://www.zotero.org/support/dev/web_api/v3/start
 - https://modelcontextprotocol.io/llms-full.txt can be utilized by LLMs
 
-## Appendix: Zotero version compatibility
+## Appendix: notes on Zotero's API
 
-Item metadata is rendered from whatever fields the Zotero API returns rather
-than from a fixed list, so no version gating is needed. Fields an older Zotero
-lacks are simply omitted, and fields from schema versions newer than this
-server still appear, under an "Other Fields" heading, so upgrading Zotero never
+Item metadata is rendered from whatever fields the API returns rather than from
+a fixed list. Fields it omits are skipped, and fields this server doesn't know
+about appear under an "Other Fields" heading, so a Zotero upgrade never
 silently drops metadata.
 
-Citation keys are the main place this matters. Zotero 8 promoted `citationKey`
-to a native field on nearly every item type and migrated existing keys into it.
-Earlier versions expose it only on `preprint`, `dataset`, and `standard`, so
-elsewhere the key is read out of the `Extra` field, where
-[Better BibTeX](https://retorque.re/zotero-better-bibtex/) pins it as
-`Citation Key: doe2024example`. The native field takes precedence when both are
-present.
-
-Searching by citation key works against the local Zotero API, whose quick
-search indexes the field. The Zotero Web API does not index it, so the same
-query returns nothing there even though the field is present in the data it
-returns.
+The two APIs differ in one way worth knowing: the local API's quick search
+indexes citation keys, while the Web API does not, so searching for one returns
+nothing over the Web API even though the field is present in the data.

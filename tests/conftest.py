@@ -63,18 +63,16 @@ def sample_annotation() -> dict[str, Any]:
 
 
 @pytest.fixture
-def legacy_item() -> dict[str, Any]:
-    """Sample item as an older Zotero returns it: no citationKey, no PMID/PMCID,
-    and a Better BibTeX citation key pinned into the Extra field."""
+def sparse_item() -> dict[str, Any]:
+    """Sample item with only a handful of fields populated"""
     return {
-        "key": "OLD12345",
+        "key": "SPARSE01",
         "data": {
-            "key": "OLD12345",
+            "key": "SPARSE01",
             "itemType": "journalArticle",
-            "title": "Legacy Article",
+            "title": "Sparse Article",
             "date": "2019",
-            "publicationTitle": "Journal of Legacy Studies",
-            "extra": "Citation Key: doe2019legacy\nPMID: 12345678",
+            "publicationTitle": "Journal of Sparse Studies",
         },
     }
 

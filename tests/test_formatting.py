@@ -4,33 +4,18 @@ from typing import Any
 
 import pytest
 
-from zotero_mcp import format_item, get_citation_key, get_source
+from zotero_mcp import format_item, get_source
 
 
-def test_citation_key_native_field(sample_item: dict[str, Any]) -> None:
-    """Zotero 8+ exposes citationKey as a native field"""
+def test_citation_key_rendered(sample_item: dict[str, Any]) -> None:
+    """The citation key is surfaced alongside the item key"""
     sample_item["data"]["citationKey"] = "doe2024test"
 
-    assert get_citation_key(sample_item["data"]) == "doe2024test"
     assert "Citation Key: `doe2024test`" in format_item(sample_item)
-
-
-def test_citation_key_from_extra(legacy_item: dict[str, Any]) -> None:
-    """Older Zotero versions only have Better BibTeX's pinned key in Extra"""
-    assert get_citation_key(legacy_item["data"]) == "doe2019legacy"
-    assert "Citation Key: `doe2019legacy`" in format_item(legacy_item)
-
-
-def test_citation_key_native_field_wins(legacy_item: dict[str, Any]) -> None:
-    """Zotero 8 migrated pinned keys, so the native field takes precedence"""
-    legacy_item["data"]["citationKey"] = "migrated2019key"
-
-    assert get_citation_key(legacy_item["data"]) == "migrated2019key"
 
 
 def test_citation_key_absent(sample_item: dict[str, Any]) -> None:
     """Items without a citation key render no Citation Key line"""
-    assert get_citation_key(sample_item["data"]) is None
     assert "Citation Key" not in format_item(sample_item)
 
 
@@ -105,12 +90,12 @@ def test_unknown_future_field_still_rendered(sample_item: dict[str, Any]) -> Non
     assert "Some Future Field: future value" in result
 
 
-def test_legacy_item_renders_without_newer_fields(legacy_item: dict[str, Any]) -> None:
-    """An older Zotero payload renders cleanly, omitting sections it can't fill"""
-    result = format_item(legacy_item)
+def test_sparse_item_omits_empty_sections(sparse_item: dict[str, Any]) -> None:
+    """A payload with few fields renders cleanly, omitting sections it can't fill"""
+    result = format_item(sparse_item)
 
-    assert "## Legacy Article" in result
-    assert "Publication: Journal of Legacy Studies" in result
+    assert "## Sparse Article" in result
+    assert "Publication: Journal of Sparse Studies" in result
     # No populated fields for these sections, so they are omitted entirely.
     assert "### Timestamps" not in result
     assert "### File" not in result

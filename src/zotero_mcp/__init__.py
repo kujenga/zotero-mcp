@@ -10,18 +10,9 @@ from zotero_mcp.client import get_attachment_details, get_zotero_client
 mcp = MCPServer("Zotero")
 
 # Zotero's local API omits empty fields while the web API returns them as "",
-# so every field lookup below treats absent and empty alike. That also keeps
-# rendering tolerant of older Zotero versions, whose schemas simply lack the
-# newer fields: citationKey only became available on nearly every item type in
-# the Zotero 8 era (before that just preprint/dataset/standard), and PMID/PMCID
-# arrived alongside it. Nothing here requires a field to exist.
-
-# Pinned Better BibTeX keys live in the Extra field as "Citation Key: foo2020bar"
-# on Zotero 7 and earlier. Zotero 8 promoted citationKey to a native field and
-# migrated those keys, so the native field wins when both are present.
-CITATION_KEY_IN_EXTRA = re.compile(
-    r"^Citation Key:\s*(\S+)\s*$", re.MULTILINE | re.IGNORECASE
-)
+# so every field lookup below treats absent and empty alike. Nothing here
+# requires a field to exist, which is also what keeps rendering tolerant of
+# schema differences between Zotero versions.
 
 # Venue fields ordered most- to least-specific: the first one present is the
 # item's source of record. Without this, anything that isn't a journal article
@@ -181,15 +172,6 @@ SPECIAL_FIELDS = frozenset(
 )
 
 
-def get_citation_key(data: dict[str, Any]) -> str | None:
-    """Get an item's citation key, falling back to a Better BibTeX pinned key"""
-    if citation_key := data.get("citationKey"):
-        return citation_key
-    if match := CITATION_KEY_IN_EXTRA.search(data.get("extra", "")):
-        return match.group(1)
-    return None
-
-
 def get_source(data: dict[str, Any]) -> str | None:
     """Get the item's source of record, e.g. its journal, book, or repository"""
     for field in SOURCE_FIELDS:
@@ -292,7 +274,7 @@ def format_item(item: dict[str, Any]) -> str:
     # Identity first: the item key addresses the item through this API, the
     # citation key addresses it from a manuscript.
     formatted = [f"## {data.get('title', 'Untitled')}", f"Item Key: `{item['key']}`"]
-    if citation_key := get_citation_key(data):
+    if citation_key := data.get("citationKey"):
         formatted.append(f"Citation Key: `{citation_key}`")
     formatted += [
         f"Type: {item_type}",
@@ -326,8 +308,8 @@ def format_item(item: dict[str, Any]) -> str:
         if lines := format_fields(data, fields):
             formatted.append(f"\n### {heading}\n" + "\n".join(lines))
 
-    # Extra holds free-form metadata, including CSL variables and (on Zotero 7
-    # and earlier) the pinned citation key already surfaced above.
+    # Extra holds free-form metadata, including CSL variables that have no
+    # dedicated Zotero field.
     if extra := data.get("extra"):
         formatted.append(f"\n### Extra\n{extra}")
 
@@ -592,7 +574,7 @@ def search_items(
 
         # Build formatted entry with markdown for better structure
         key_line = f"**Type**: {item_type} | **Date**: {date} | **Key**: `{item_key}`"
-        if citation_key := get_citation_key(data):
+        if citation_key := data.get("citationKey"):
             key_line += f" | **Citation Key**: `{citation_key}`"
         entry = [
             f"## {i + 1}. {title}",
