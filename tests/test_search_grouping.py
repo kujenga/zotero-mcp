@@ -41,7 +41,26 @@ def test_work_and_its_child_are_not_duplicated(mock_zotero: Any) -> None:
 
     assert result.count("**Key**: `PARENT01`") == 1
     assert "Found 1 items across 2 matches" in result
-    assert "**Matched in**: attachment full text `ATT00001`" in result
+    # The work matched on its own fields too, so the provenance says so rather
+    # than crediting the attachment alone.
+    assert "**Matched in**: this item, attachment full text `ATT00001`" in result
+
+
+def test_direct_and_child_matches_are_distinguishable(mock_zotero: Any) -> None:
+    """A work found only via its PDF must not look like one that also matched"""
+    mock_zotero.items.side_effect = [
+        [
+            child("ATT_A", "WORK_A"),
+            work("WORK_B", "Matched Both Ways"),
+            child("ATT_B", "WORK_B"),
+        ],
+        [work("WORK_A", "Only Its PDF Matched")],
+    ]
+
+    result = search_items("test", qmode="everything")
+
+    assert "**Matched in**: attachment full text `ATT_A`" in result
+    assert "**Matched in**: this item, attachment full text `ATT_B`" in result
 
 
 def test_multiple_children_listed_together(mock_zotero: Any) -> None:
@@ -119,7 +138,7 @@ def test_group_by_work_preserves_first_match_order() -> None:
 
     grouped = group_by_work(items, resolved)
 
-    assert [item["key"] for item, _ in grouped] == ["PARENT02", "PARENT01"]
+    assert [group.item["key"] for group in grouped] == ["PARENT02", "PARENT01"]
 
 
 def test_resolution_survives_a_failed_lookup(mock_zotero: Any) -> None:

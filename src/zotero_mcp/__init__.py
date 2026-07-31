@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 
 from mcp.server import MCPServer
 from pydantic import Field
@@ -498,9 +498,22 @@ def describe_child_match(child: dict[str, Any]) -> str:
     return f"{item_type} `{key}`"
 
 
+class WorkMatch(NamedTuple):
+    """A work in the search results, with where its matches came from.
+
+    `direct` and `children` are both recorded because a work can match either
+    way or both, and collapsing them would make a work that only turned up
+    through its PDF indistinguishable from one that also matched on its title.
+    """
+
+    item: dict[str, Any]
+    children: list[dict[str, Any]]
+    direct: bool
+
+
 def group_by_work(
     items: list[dict[str, Any]], resolved: dict[str, Any]
-) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+) -> list[WorkMatch]:
     """Group search results by the work they belong to, in first-match order.
 
     A work matched both directly and through its attachments appears once. A
@@ -523,12 +536,17 @@ def group_by_work(
 
         key = work["key"]
         if key not in works:
-            works[key] = {"item": work, "children": []}
+            works[key] = {"item": work, "children": [], "direct": False}
             order.append(key)
-        if work is not item:
+        if work is item:
+            works[key]["direct"] = True
+        else:
             works[key]["children"].append(item)
 
-    return [(works[key]["item"], works[key]["children"]) for key in order]
+    return [
+        WorkMatch(works[key]["item"], works[key]["children"], works[key]["direct"])
+        for key in order
+    ]
 
 
 # Search behaviour below was verified against both a local Zotero API and
@@ -644,7 +662,7 @@ def search_items(
     # collapsing nothing (six child hits, no two sharing a parent), and gating
     # the resolution clause on collapsing would leave that search describing
     # itself exactly like a title-only one.
-    resolved = sum(1 for _, children in groups if children)
+    resolved = sum(1 for group in groups if group.children)
 
     found = f"Found {len(groups)} items"
     if len(groups) != matched:
@@ -684,16 +702,20 @@ def search_items(
 
     # Format results
     formatted_results = []
-    for i, (item, matched_children) in enumerate(groups):
+    for i, group in enumerate(groups):
+        item = group.item
         data = item["data"]
         item_key = item.get("key", "")
         item_type = data.get("itemType", "unknown")
-        matched_in = (
-            "**Matched in**: "
-            + ", ".join(describe_child_match(child) for child in matched_children)
-            if matched_children
-            else None
-        )
+
+        # Only worth a line when a child matched, since that provenance is not
+        # otherwise visible. "this item" is listed alongside so a work that
+        # matched both ways stays distinguishable from one found only in a PDF.
+        matched_in = None
+        if group.children:
+            sources = ["this item"] if group.direct else []
+            sources += [describe_child_match(child) for child in group.children]
+            matched_in = "**Matched in**: " + ", ".join(sources)
 
         # Special handling for notes
         if item_type == "note":
