@@ -14,7 +14,7 @@ This project is a python server that implements the [Model Context Protocol (MCP
 This MCP server provides the following tools:
 
 - `zotero_search_items`: Search for items in your Zotero library using a text query
-- `zotero_item_metadata`: Get detailed metadata information about a specific Zotero item
+- `zotero_item_metadata`: Get the complete metadata for a specific Zotero item, covering every populated field grouped into publication details, identifiers, timestamps, and library information
 - `zotero_item_fulltext`: Get the full text of a specific Zotero item (i.e. PDF contents)
 
 These can be discovered and accessed through any MCP client or through the [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector).
@@ -149,3 +149,14 @@ npx @modelcontextprotocol/inspector \
 - https://pyzotero.readthedocs.io/en/latest/
 - https://www.zotero.org/support/dev/web_api/v3/start
 - https://modelcontextprotocol.io/llms-full.txt can be utilized by LLMs
+
+## Appendix: notes on Zotero's API
+
+Item metadata is rendered from whatever fields the API returns rather than from
+a fixed list. Fields it omits are skipped, and fields this server doesn't know
+about appear under an "Other Fields" heading, so a Zotero upgrade never
+silently drops metadata.
+
+The two APIs differ in one way worth knowing: the local API's quick search
+indexes citation keys, while the Web API does not, so searching for one returns
+nothing over the Web API even though the field is present in the data.

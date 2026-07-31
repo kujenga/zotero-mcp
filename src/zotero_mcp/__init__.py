@@ -1,66 +1,288 @@
-from typing import Any, Literal
+import re
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
+from pydantic import Field
 
 from zotero_mcp.client import get_attachment_details, get_zotero_client
 
 # Create an MCP server
 mcp = MCPServer("Zotero")
 
+# Zotero's local API omits empty fields while the web API returns them as "",
+# so every field lookup below treats absent and empty alike. Nothing here
+# requires a field to exist, which is also what keeps rendering tolerant of
+# schema differences between Zotero versions.
+
+# Venue fields ordered most- to least-specific: the first one present is the
+# item's source of record. Without this, anything that isn't a journal article
+# loses its provenance -- a preprint wouldn't report arXiv, a conference paper
+# wouldn't report its proceedings.
+SOURCE_FIELDS = (
+    "publicationTitle",
+    "bookTitle",
+    "proceedingsTitle",
+    "encyclopediaTitle",
+    "dictionaryTitle",
+    "websiteTitle",
+    "blogTitle",
+    "forumTitle",
+    "programTitle",
+    "conferenceName",
+    "repository",
+    "institution",
+    "university",
+    "publisher",
+)
+
+# Grouped rendering for the full metadata view. Any populated field missing from
+# this table still appears under "Other Fields", so fields from newer Zotero
+# schema versions surface without a code change here.
+FIELD_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "Publication",
+        (
+            "publicationTitle",
+            "bookTitle",
+            "proceedingsTitle",
+            "conferenceName",
+            "encyclopediaTitle",
+            "dictionaryTitle",
+            "websiteTitle",
+            "websiteType",
+            "blogTitle",
+            "forumTitle",
+            "postType",
+            "programTitle",
+            "network",
+            "repository",
+            "repositoryLocation",
+            "institution",
+            "university",
+            "thesisType",
+            "publisher",
+            "place",
+            "edition",
+            "series",
+            "seriesTitle",
+            "seriesNumber",
+            "seriesText",
+            "volume",
+            "numberOfVolumes",
+            "issue",
+            "section",
+            "pages",
+            "numPages",
+            "journalAbbreviation",
+            "reportNumber",
+            "reportType",
+            "medium",
+            "runningTime",
+        ),
+    ),
+    (
+        "Identifiers",
+        (
+            "url",
+            "DOI",
+            "ISBN",
+            "ISSN",
+            "PMID",
+            "PMCID",
+            "archiveID",
+            "callNumber",
+        ),
+    ),
+    (
+        "Timestamps",
+        (
+            "dateAdded",
+            "dateModified",
+            "accessDate",
+            "lastRead",
+            "filingDate",
+            "priorityDate",
+        ),
+    ),
+    (
+        "Library",
+        (
+            "libraryCatalog",
+            "archive",
+            "archiveLocation",
+            "rights",
+            "language",
+            "shortTitle",
+        ),
+    ),
+    (
+        "File",
+        (
+            "contentType",
+            "filename",
+            "linkMode",
+            "charset",
+            "md5",
+            "mtime",
+            "path",
+        ),
+    ),
+)
+
+# Labels that camelCase splitting alone would get wrong or render awkwardly.
+FIELD_LABELS = {
+    "url": "URL",
+    "publicationTitle": "Publication",
+    "numPages": "Number of Pages",
+    "numberOfVolumes": "Number of Volumes",
+    "accessDate": "Accessed",
+    "archiveID": "Archive ID",
+    "md5": "MD5",
+    "mtime": "File Modified",
+}
+
+SECTIONED_FIELDS = frozenset(field for _, fields in FIELD_SECTIONS for field in fields)
+
+# Fields with dedicated rendering, excluded from the "Other Fields" catch-all.
+SPECIAL_FIELDS = frozenset(
+    {
+        "key",
+        "version",
+        "itemType",
+        "title",
+        "date",
+        "citationKey",
+        "creators",
+        "abstractNote",
+        "tags",
+        "extra",
+        "note",
+        "parentItem",
+        "relations",
+        "collections",
+        "annotationType",
+        "annotationText",
+        "annotationComment",
+        "annotationColor",
+        "annotationPageLabel",
+        "annotationAuthorName",
+        "annotationSortIndex",
+        "annotationPosition",
+    }
+)
+
+
+def get_source(data: dict[str, Any]) -> str | None:
+    """Get the item's source of record, e.g. its journal, book, or repository"""
+    for field in SOURCE_FIELDS:
+        if value := data.get(field):
+            return f"In: {value}" if field == "bookTitle" else value
+    return None
+
+
+def field_label(field: str) -> str:
+    """Get the display label for a Zotero field name"""
+    if label := FIELD_LABELS.get(field):
+        return label
+    if field.isupper():
+        return field
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", field)
+    return spaced[0].upper() + spaced[1:]
+
+
+def format_fields(data: dict[str, Any], fields: Any) -> list[str]:
+    """Render populated fields as label/value lines, skipping empty ones"""
+    return [
+        f"{field_label(field)}: {data[field]}" for field in fields if data.get(field)
+    ]
+
+
+def strip_note_html(note: str) -> str:
+    """Convert Zotero's HTML note content to rough markdown"""
+    note = note.replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
+    note = note.replace("<strong>", "**").replace("</strong>", "**")
+    return note.replace("<em>", "*").replace("</em>", "*")
+
+
+def format_tags(data: dict[str, Any]) -> str | None:
+    """Render an item's tags as a markdown section"""
+    if not (tags := data.get("tags")):
+        return None
+    return "\n### Tags\n" + ", ".join(f"`{tag['tag']}`" for tag in tags)
+
+
+def format_note(item: dict[str, Any]) -> str:
+    """Format a Zotero note item"""
+    data = item["data"]
+
+    formatted = [
+        "## 📝 Note",
+        f"Item Key: `{item['key']}`",
+    ]
+    if parent_item := data.get("parentItem"):
+        formatted.append(f"Parent Item: `{parent_item}`")
+    if date := data.get("dateModified"):
+        formatted.append(f"Last Modified: {date}")
+    if tags := format_tags(data):
+        formatted.append(tags)
+
+    formatted.append(f"\n### Note Content\n{strip_note_html(data.get('note', ''))}")
+
+    return "\n".join(formatted)
+
+
+def format_annotation(item: dict[str, Any]) -> str:
+    """Format a Zotero annotation item, i.e. a PDF highlight or comment"""
+    data = item["data"]
+    annotation_type = data.get("annotationType", "annotation")
+
+    formatted = [
+        f"## 🖍 {annotation_type.capitalize()} Annotation",
+        f"Item Key: `{item['key']}`",
+    ]
+    if parent_item := data.get("parentItem"):
+        formatted.append(f"Parent Item: `{parent_item}`")
+    if page := data.get("annotationPageLabel"):
+        formatted.append(f"Page: {page}")
+    if color := data.get("annotationColor"):
+        formatted.append(f"Color: {color}")
+    if author := data.get("annotationAuthorName"):
+        formatted.append(f"Author: {author}")
+    if date := data.get("dateModified"):
+        formatted.append(f"Last Modified: {date}")
+    if tags := format_tags(data):
+        formatted.append(tags)
+
+    if text := data.get("annotationText"):
+        formatted.append(f"\n### Highlighted Text\n{text}")
+    if comment := data.get("annotationComment"):
+        formatted.append(f"\n### Comment\n{comment}")
+
+    return "\n".join(formatted)
+
 
 def format_item(item: dict[str, Any]) -> str:
-    """Format a Zotero item's metadata as a readable string optimized for LLM consumption"""
+    """Format a Zotero item's full metadata as a string optimized for LLM consumption"""
     data = item["data"]
-    item_key = item["key"]
     item_type = data.get("itemType", "unknown")
 
-    # Special handling for notes
     if item_type == "note":
-        # Get note content
-        note_content = data.get("note", "")
-        # Strip HTML tags for cleaner text (simple approach)
-        note_content = (
-            note_content.replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
-        )
-        note_content = note_content.replace("<strong>", "**").replace("</strong>", "**")
-        note_content = note_content.replace("<em>", "*").replace("</em>", "*")
+        return format_note(item)
+    if item_type == "annotation":
+        return format_annotation(item)
 
-        # Format note with clear sections
-        formatted = [
-            "## 📝 Note",
-            f"Item Key: `{item_key}`",
-        ]
-
-        # Add parent item reference if available
-        if parent_item := data.get("parentItem"):
-            formatted.append(f"Parent Item: `{parent_item}`")
-
-        # Add date if available
-        if date := data.get("dateModified"):
-            formatted.append(f"Last Modified: {date}")
-
-        # Add tags with formatting for better visibility
-        if tags := data.get("tags"):
-            tag_list = [f"`{tag['tag']}`" for tag in tags]
-            formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
-
-        # Add note content
-        formatted.append(f"\n### Note Content\n{note_content}")
-
-        return "\n".join(formatted)
-
-    # Regular item handling (non-notes)
-
-    # Basic metadata with key for easy reference
-    formatted = [
-        f"## {data.get('title', 'Untitled')}",
-        f"Item Key: `{item_key}`",
+    # Identity first: the item key addresses the item through this API, the
+    # citation key addresses it from a manuscript.
+    formatted = [f"## {data.get('title', 'Untitled')}", f"Item Key: `{item['key']}`"]
+    if citation_key := data.get("citationKey"):
+        formatted.append(f"Citation Key: `{citation_key}`")
+    formatted += [
         f"Type: {item_type}",
         f"Date: {data.get('date', 'No date')}",
     ]
 
     # Creators with role differentiation
-    creators_by_role = {}
+    creators_by_role: dict[str, list[str]] = {}
     for creator in data.get("creators", []):
         role = creator.get("creatorType", "contributor")
         name = ""
@@ -70,60 +292,56 @@ def format_item(item: dict[str, Any]) -> str:
             name = creator["name"]
 
         if name:
-            if role not in creators_by_role:
-                creators_by_role[role] = []
-            creators_by_role[role].append(name)
+            creators_by_role.setdefault(role, []).append(name)
 
     for role, names in creators_by_role.items():
         role_display = role.capitalize() + ("s" if len(names) > 1 else "")
         formatted.append(f"{role_display}: {'; '.join(names)}")
 
-    # Publication details
-    if publication := data.get("publicationTitle"):
-        formatted.append(f"Publication: {publication}")
-    if volume := data.get("volume"):
-        volume_info = f"Volume: {volume}"
-        if issue := data.get("issue"):
-            volume_info += f", Issue: {issue}"
-        if pages := data.get("pages"):
-            volume_info += f", Pages: {pages}"
-        formatted.append(volume_info)
-
-    # Abstract with clear section header
     if abstract := data.get("abstractNote"):
         formatted.append(f"\n### Abstract\n{abstract}")
 
-    # Tags with formatting for better visibility
-    if tags := data.get("tags"):
-        tag_list = [f"`{tag['tag']}`" for tag in tags]
-        formatted.append(f"\n### Tags\n{', '.join(tag_list)}")
+    if tags := format_tags(data):
+        formatted.append(tags)
 
-    # URLs, DOIs, and identifiers grouped together
-    identifiers = []
-    if url := data.get("url"):
-        identifiers.append(f"URL: {url}")
-    if doi := data.get("DOI"):
-        identifiers.append(f"DOI: {doi}")
-    if isbn := data.get("ISBN"):
-        identifiers.append(f"ISBN: {isbn}")
-    if issn := data.get("ISSN"):
-        identifiers.append(f"ISSN: {issn}")
+    for heading, fields in FIELD_SECTIONS:
+        if lines := format_fields(data, fields):
+            formatted.append(f"\n### {heading}\n" + "\n".join(lines))
 
-    if identifiers:
-        formatted.append("\n### Identifiers\n" + "\n".join(identifiers))
+    # Extra holds free-form metadata, including CSL variables that have no
+    # dedicated Zotero field.
+    if extra := data.get("extra"):
+        formatted.append(f"\n### Extra\n{extra}")
 
-    # Notes and attachments
-    if notes := item.get("meta", {}).get("numChildren", 0):
-        formatted.append(
-            f"\n### Additional Information\nNumber of notes/attachments: {notes}"
+    # Catch-all so fields from newer schema versions are never silently dropped.
+    unrendered = sorted(set(data) - SECTIONED_FIELDS - SPECIAL_FIELDS)
+    if lines := format_fields(data, unrendered):
+        formatted.append("\n### Other Fields\n" + "\n".join(lines))
+
+    additional = []
+    if num_children := item.get("meta", {}).get("numChildren"):
+        additional.append(f"Number of notes/attachments: {num_children}")
+    if parsed_date := item.get("meta", {}).get("parsedDate"):
+        additional.append(f"Parsed Date: {parsed_date}")
+    if parent_item := data.get("parentItem"):
+        additional.append(f"Parent Item: `{parent_item}`")
+    if collections := data.get("collections"):
+        additional.append(
+            "Collections: " + ", ".join(f"`{key}`" for key in collections)
         )
+    if library_name := item.get("library", {}).get("name"):
+        additional.append(f"Library: {library_name}")
+    if version := data.get("version"):
+        additional.append(f"Version: {version}")
+    if additional:
+        formatted.append("\n### Additional Information\n" + "\n".join(additional))
 
     return "\n".join(formatted)
 
 
 @mcp.tool(
     name="zotero_item_metadata",
-    description="Get metadata information about a specific Zotero item, given the item key.",
+    description="Get the complete metadata for a specific Zotero item, given the item key. Includes the citation key, publication details, identifiers, and timestamps.",
 )
 def get_item_metadata(item_key: str) -> str:
     """Get metadata information about a specific Zotero item"""
@@ -189,16 +407,73 @@ def get_item_fulltext(item_key: str) -> str:
         return f"Error retrieving item full text: {e!s}"
 
 
+# Search behaviour below was verified against both a local Zotero API and
+# api.zotero.org rather than taken from the docs, which are thin and in one
+# respect outdated: https://www.zotero.org/support/dev/web_api/v3/basics#searching
+# says quick search "currently supports phrase searching only", but both APIs
+# actually match items containing all the query's words in any position.
 @mcp.tool(
     name="zotero_search_items",
-    # More detail can be added if useful: https://www.zotero.org/support/dev/web_api/v3/basics#searching
-    description="Search for items in your Zotero library, given a query string, query mode (titleCreatorYear or everything), and optional tag search (supports boolean searches). Returned results can be looked up with zotero_item_fulltext or zotero_item_metadata.",
+    description=(
+        "Search for items in your Zotero library. Returns a summary of each match; "
+        "look up individual results with zotero_item_metadata or zotero_item_fulltext."
+        "\n\n"
+        "Choosing a query mode:\n"
+        "- 'titleCreatorYear' (the default) searches titles, creator names, and years. "
+        "Use it for known-item lookup, where you know roughly what the item is called "
+        "or who wrote it.\n"
+        "- 'everything' additionally searches abstracts, the Extra field, note text, "
+        "and the full text of attachments. Use it for topic and full-text search, "
+        "where the term would not appear in a title.\n\n"
+        "Words match by prefix and multi-word queries match items containing all of "
+        "the words in any position, so 'cybor insect' matches 'Cyborg Insect'."
+    ),
 )
 def search_items(
-    query: str,
-    qmode: Literal["titleCreatorYear", "everything"] | None = "titleCreatorYear",
-    tag: str | None = None,
-    limit: int | None = 10,
+    query: Annotated[
+        str,
+        Field(
+            description=(
+                "Text to match. Words match by prefix, and an item must contain every "
+                "word in the query, though not necessarily as a contiguous phrase."
+            )
+        ),
+    ],
+    qmode: Annotated[
+        Literal["titleCreatorYear", "everything"] | None,
+        Field(
+            description=(
+                "Which fields to search. 'titleCreatorYear' covers titles, creator "
+                "names, and years; against a local Zotero API it also matches citation "
+                "keys, which the Zotero Web API does not index. 'everything' adds "
+                "abstracts, the Extra field, note text, and attachment full text, so "
+                "use it to find work by what is written inside the PDF rather than in "
+                "its metadata. A match inside an attachment or note is returned as "
+                "that child item rather than as its parent, so results routinely "
+                "contain more entries than distinct works."
+            )
+        ),
+    ] = "titleCreatorYear",
+    tag: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Filter by tag. Use 'foo || bar' to match either tag and '-foo' to "
+                "exclude one; tag names containing spaces are matched as written. "
+                "Requiring two tags at once is not expressible here."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Maximum number of results. Worth raising when qmode is 'everything', "
+                "where several attachments or notes belonging to one work can each "
+                "match separately."
+            )
+        ),
+    ] = 10,
 ) -> str:
     """Search for items in your Zotero library"""
     zot = get_zotero_client()
@@ -231,18 +506,7 @@ def search_items(
 
         # Special handling for notes
         if item_type == "note":
-            # Get note content
-            note_content = data.get("note", "")
-            # Strip HTML tags for cleaner text (simple approach)
-            note_content = (
-                note_content.replace("<p>", "")
-                .replace("</p>", "\n")
-                .replace("<br>", "\n")
-            )
-            note_content = note_content.replace("<strong>", "**").replace(
-                "</strong>", "**"
-            )
-            note_content = note_content.replace("<em>", "*").replace("</em>", "*")
+            note_content = strip_note_html(data.get("note", ""))
 
             # Extract a title from the first line if possible, otherwise use first few words
             title_preview = ""
@@ -303,28 +567,22 @@ def search_items(
 
         creator_str = "; ".join(creators) if creators else "No authors"
 
-        # Get publication or source info
-        source = ""
-        if pub := data.get("publicationTitle"):
-            source = pub
-        elif book := data.get("bookTitle"):
-            source = f"In: {book}"
-        elif publisher := data.get("publisher"):
-            source = f"{publisher}"
-
         # Get a brief abstract (truncated if too long)
         abstract = data.get("abstractNote", "")
         if len(abstract) > 150:
             abstract = abstract[:147] + "..."
 
         # Build formatted entry with markdown for better structure
+        key_line = f"**Type**: {item_type} | **Date**: {date} | **Key**: `{item_key}`"
+        if citation_key := data.get("citationKey"):
+            key_line += f" | **Citation Key**: `{citation_key}`"
         entry = [
             f"## {i + 1}. {title}",
-            f"**Type**: {item_type} | **Date**: {date} | **Key**: `{item_key}`",
+            key_line,
             f"**Authors**: {creator_str}",
         ]
 
-        if source:
+        if source := get_source(data):
             entry.append(f"**Source**: {source}")
 
         if abstract:

@@ -22,6 +22,31 @@ def test_search_items_basic(mock_zotero: Any, sample_item: dict[str, Any]) -> No
     )
 
 
+def test_search_items_includes_citation_key(
+    mock_zotero: Any, sample_item: dict[str, Any]
+) -> None:
+    """Search results carry the citation key so no follow-up lookup is needed"""
+    sample_item["data"]["citationKey"] = "doe2024test"
+    mock_zotero.items.return_value = [sample_item]
+
+    result = search_items("test")
+
+    assert "**Citation Key**: `doe2024test`" in result
+
+
+def test_search_items_source_for_non_journal(
+    mock_zotero: Any, sample_item: dict[str, Any]
+) -> None:
+    """Search summaries report a source for item types beyond journal articles"""
+    sample_item["data"]["itemType"] = "preprint"
+    sample_item["data"]["repository"] = "arXiv"
+    mock_zotero.items.return_value = [sample_item]
+
+    result = search_items("test")
+
+    assert "**Source**: arXiv" in result
+
+
 def test_search_items_no_results(mock_zotero: Any) -> None:
     """Test search with no results"""
     mock_zotero.items.return_value = []
