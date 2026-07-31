@@ -1,7 +1,8 @@
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
+from pydantic import Field
 
 from zotero_mcp.client import get_attachment_details, get_zotero_client
 
@@ -424,16 +425,71 @@ def get_item_fulltext(item_key: str) -> str:
         return f"Error retrieving item full text: {e!s}"
 
 
+# Search behaviour below was verified against both a local Zotero API and
+# api.zotero.org rather than taken from the docs, which are thin and in one
+# respect outdated: https://www.zotero.org/support/dev/web_api/v3/basics#searching
+# says quick search "currently supports phrase searching only", but both APIs
+# actually match items containing all the query's words in any position.
 @mcp.tool(
     name="zotero_search_items",
-    # More detail can be added if useful: https://www.zotero.org/support/dev/web_api/v3/basics#searching
-    description="Search for items in your Zotero library, given a query string, query mode (titleCreatorYear or everything), and optional tag search (supports boolean searches). Returned results can be looked up with zotero_item_fulltext or zotero_item_metadata.",
+    description=(
+        "Search for items in your Zotero library. Returns a summary of each match; "
+        "look up individual results with zotero_item_metadata or zotero_item_fulltext."
+        "\n\n"
+        "Choosing a query mode:\n"
+        "- 'titleCreatorYear' (the default) searches titles, creator names, and years. "
+        "Use it for known-item lookup, where you know roughly what the item is called "
+        "or who wrote it.\n"
+        "- 'everything' additionally searches abstracts, the Extra field, note text, "
+        "and the full text of attachments. Use it for topic and full-text search, "
+        "where the term would not appear in a title.\n\n"
+        "Words match by prefix and multi-word queries match items containing all of "
+        "the words in any position, so 'cybor insect' matches 'Cyborg Insect'."
+    ),
 )
 def search_items(
-    query: str,
-    qmode: Literal["titleCreatorYear", "everything"] | None = "titleCreatorYear",
-    tag: str | None = None,
-    limit: int | None = 10,
+    query: Annotated[
+        str,
+        Field(
+            description=(
+                "Text to match. Words match by prefix, and an item must contain every "
+                "word in the query, though not necessarily as a contiguous phrase."
+            )
+        ),
+    ],
+    qmode: Annotated[
+        Literal["titleCreatorYear", "everything"] | None,
+        Field(
+            description=(
+                "Which fields to search. 'titleCreatorYear' covers titles, creator "
+                "names, and years; against a local Zotero API it also matches citation "
+                "keys, which the Zotero Web API does not index. 'everything' adds "
+                "abstracts, the Extra field, notes, and attachment full text, but its "
+                "results also include matching attachments and notes as separate "
+                "entries, which commonly outnumber the parent items -- raise 'limit' "
+                "to compensate."
+            )
+        ),
+    ] = "titleCreatorYear",
+    tag: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Filter by tag. Use 'foo || bar' to match either tag and '-foo' to "
+                "exclude one; tag names containing spaces are matched as written. "
+                "Requiring two tags at once is not expressible here."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Maximum number of results. Worth raising when qmode is 'everything', "
+                "whose results are padded with child attachments and notes."
+            )
+        ),
+    ] = 10,
 ) -> str:
     """Search for items in your Zotero library"""
     zot = get_zotero_client()
