@@ -162,9 +162,13 @@ def test_header_reports_resolution_without_any_collapsing(mock_zotero: Any) -> N
 
     result = search_items("memory persistence", qmode="everything")
 
-    # Nothing collapsed, so the count of works equals the count of matches.
-    assert "across" not in result.split("\n")[2]
-    assert "Found 3 items, all matched inside attachments or notes." in result
+    # Nothing collapsed -- works equals matches -- yet the resolution is still
+    # reported, which is the whole point. The match count stays as the
+    # denominator for "all of which".
+    assert (
+        "Found 3 items across 3 matches, all of which were inside attachments or notes."
+        in result
+    )
 
 
 def test_header_stays_quiet_for_metadata_only_matches(mock_zotero: Any) -> None:
@@ -186,7 +190,10 @@ def test_header_counts_partial_resolution(mock_zotero: Any) -> None:
 
     result = search_items("test", qmode="everything")
 
-    assert "Found 3 items, 1 matched inside attachments or notes." in result
+    assert (
+        "Found 3 items across 3 matches, 1 of which were inside attachments or notes."
+        in result
+    )
 
 
 def test_header_reports_collapsing_and_resolution_together(mock_zotero: Any) -> None:
@@ -203,7 +210,7 @@ def test_header_reports_collapsing_and_resolution_together(mock_zotero: Any) -> 
     result = search_items("test", qmode="everything")
 
     assert (
-        "Found 2 items across 3 matches, 1 matched inside attachments or notes."
+        "Found 2 items across 3 matches, 2 of which were inside attachments or notes."
         in result
     )
 
@@ -258,7 +265,7 @@ def test_truncated_results_report_the_total(mock_zotero: Any) -> None:
 
     result = search_items("test", limit=2)
 
-    assert "first 2 of 137 total matches" in result
+    assert "first 2 of 137 matches" in result
     assert "raise `limit`" in result
 
 
@@ -269,7 +276,7 @@ def test_complete_results_say_nothing_extra(mock_zotero: Any) -> None:
 
     result = search_items("test", limit=10)
 
-    assert "total matches" not in result
+    assert "of 2 matches" not in result
     assert "Found 2 items." in result
 
 
@@ -288,7 +295,7 @@ def test_grouped_and_truncated_reports_both(mock_zotero: Any) -> None:
     result = search_items("test", qmode="everything", limit=3)
 
     assert "Found 2 items across 3 matches" in result
-    assert "first 3 of 99 total matches" in result
+    assert "first 3 of 99 matches" in result
 
 
 def test_fewer_items_than_limit_can_still_be_truncated(mock_zotero: Any) -> None:
@@ -302,7 +309,7 @@ def test_fewer_items_than_limit_can_still_be_truncated(mock_zotero: Any) -> None
     result = search_items("test", qmode="everything", limit=10)
 
     assert "Found 1 items across 10 matches" in result
-    assert "first 10 of 1093 total matches" in result
+    assert "first 10 of 1093 matches" in result
 
 
 def test_falls_back_to_limit_when_header_missing(mock_zotero: Any) -> None:
@@ -321,7 +328,7 @@ def test_no_truncation_note_when_under_limit_without_header(mock_zotero: Any) ->
     result = search_items("test", limit=10)
 
     assert "reached the limit" not in result
-    assert "total matches" not in result
+    assert "of 2 matches" not in result
 
 
 def test_standalone_note_is_unaffected(mock_zotero: Any) -> None:

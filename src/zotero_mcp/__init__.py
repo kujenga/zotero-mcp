@@ -662,15 +662,20 @@ def search_items(
     # collapsing nothing (six child hits, no two sharing a parent), and gating
     # the resolution clause on collapsing would leave that search describing
     # itself exactly like a title-only one.
-    resolved = sum(1 for group in groups if group.children)
+    # Counted over matches, not works, and phrased to attach to the match count
+    # it follows. Counting works here would let "all" describe a result set
+    # whose matches were only partly child hits: four works each with one PDF
+    # hit, two of which also matched on their titles, is 8 of 10 matches rather
+    # than all of them.
+    child_matches = sum(1 for item in results if item["data"].get("parentItem"))
 
     found = f"Found {len(groups)} items"
-    if len(groups) != matched:
+    if child_matches:
+        found += f" across {matched} matches, "
+        found += "all" if child_matches == matched else str(child_matches)
+        found += " of which were inside attachments or notes"
+    elif len(groups) != matched:
         found += f" across {matched} matches"
-    if resolved == len(groups):
-        found += ", all matched inside attachments or notes"
-    elif resolved:
-        found += f", {resolved} matched inside attachments or notes"
     found += "."
 
     # Say explicitly when there is more to fetch. Item count alone cannot convey
@@ -678,7 +683,7 @@ def search_items(
     # requested, so a short list is not evidence the result set was exhausted.
     if total_matches is not None and total_matches > matched:
         found += (
-            f" These are the first {matched} of {total_matches} total matches"
+            f" These are the first {matched} of {total_matches} matches"
             " -- raise `limit` to see the rest."
         )
     elif total_matches is None and limit is not None and matched >= limit:
