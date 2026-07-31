@@ -464,10 +464,11 @@ def search_items(
                 "Which fields to search. 'titleCreatorYear' covers titles, creator "
                 "names, and years; against a local Zotero API it also matches citation "
                 "keys, which the Zotero Web API does not index. 'everything' adds "
-                "abstracts, the Extra field, notes, and attachment full text, but its "
-                "results also include matching attachments and notes as separate "
-                "entries, which commonly outnumber the parent items -- raise 'limit' "
-                "to compensate."
+                "abstracts, the Extra field, note text, and attachment full text, so "
+                "use it to find work by what is written inside the PDF rather than in "
+                "its metadata. A match inside an attachment or note is returned as "
+                "that child item rather than as its parent, so results routinely "
+                "contain more entries than distinct works."
             )
         ),
     ] = "titleCreatorYear",
@@ -486,7 +487,8 @@ def search_items(
         Field(
             description=(
                 "Maximum number of results. Worth raising when qmode is 'everything', "
-                "whose results are padded with child attachments and notes."
+                "where several attachments or notes belonging to one work can each "
+                "match separately."
             )
         ),
     ] = 10,
