@@ -134,6 +134,98 @@ def test_resolution_survives_a_failed_lookup(mock_zotero: Any) -> None:
     assert "Some PDF" in result
 
 
+def test_header_reports_resolution_without_any_collapsing(mock_zotero: Any) -> None:
+    """Every result resolved through a PDF, but no two share a parent"""
+    mock_zotero.items.side_effect = [
+        [child(f"ATT0000{i}", f"PARENT0{i}") for i in range(1, 4)],
+        [work(f"PARENT0{i}") for i in range(1, 4)],
+    ]
+
+    result = search_items("memory persistence", qmode="everything")
+
+    # Nothing collapsed, so the count of works equals the count of matches.
+    assert "across" not in result.split("\n")[2]
+    assert "Found 3 items, all matched inside attachments or notes." in result
+
+
+def test_header_stays_quiet_for_metadata_only_matches(mock_zotero: Any) -> None:
+    """Title and creator matches read the same as they always did"""
+    mock_zotero.items.return_value = [work("PARENT01"), work("PARENT02")]
+
+    result = search_items("test")
+
+    assert "Found 2 items." in result
+    assert "attachments or notes" not in result
+
+
+def test_header_counts_partial_resolution(mock_zotero: Any) -> None:
+    """A mix of metadata and child matches reports how many came from children"""
+    mock_zotero.items.side_effect = [
+        [work("PARENT01"), work("PARENT02"), child("ATT00001", "PARENT03")],
+        [work("PARENT03")],
+    ]
+
+    result = search_items("test", qmode="everything")
+
+    assert "Found 3 items, 1 matched inside attachments or notes." in result
+
+
+def test_header_reports_collapsing_and_resolution_together(mock_zotero: Any) -> None:
+    """Both facts appear when both apply"""
+    mock_zotero.items.side_effect = [
+        [
+            child("ATT00001", "PARENT01"),
+            child("ATT00002", "PARENT01"),
+            work("PARENT02"),
+        ],
+        [work("PARENT01")],
+    ]
+
+    result = search_items("test", qmode="everything")
+
+    assert (
+        "Found 2 items across 3 matches, 1 matched inside attachments or notes."
+        in result
+    )
+
+
+def test_hyphenated_query_is_flagged(mock_zotero: Any) -> None:
+    """Zotero ORs the halves of a hyphenated term, which nothing else signals"""
+    mock_zotero.items.return_value = [work("PARENT01")]
+
+    result = search_items("oxygen-deprived")
+
+    assert "read as OR" in result
+    assert "Replace it with a space" in result
+
+
+def test_unhyphenated_query_is_not_flagged(mock_zotero: Any) -> None:
+    """The note only appears when a hyphen actually joins two words"""
+    mock_zotero.items.return_value = [work("PARENT01")]
+
+    assert "read as OR" not in search_items("oxygen deprived")
+    assert "read as OR" not in search_items("-deprived")
+
+
+def test_empty_results_suggest_everything_mode(mock_zotero: Any) -> None:
+    """The default mode not searching abstracts is worth saying at zero results"""
+    mock_zotero.items.return_value = []
+
+    result = search_items("oxygen-deprived")
+
+    assert "qmode='everything'" in result
+    assert "titles, creators, and years only" in result
+
+
+def test_empty_results_in_everything_mode_suggest_nothing(mock_zotero: Any) -> None:
+    """There is no wider mode to recommend once everything has been tried"""
+    mock_zotero.items.return_value = []
+
+    result = search_items("oxygen-deprived", qmode="everything")
+
+    assert result == "No items found matching your query."
+
+
 def with_total(mock_zotero: Any, total: int) -> None:
     """Give the mocked client a Total-Results header, as Zotero returns"""
     mock_zotero.request = MagicMock()

@@ -416,6 +416,12 @@ def get_item_fulltext(item_key: str) -> str:
 # point of full-text search -- on a real library a single query returned 24
 # child items covering 22 works, 21 of which matched *only* through their
 # attachments -- so they are resolved back to their work rather than dropped.
+# A hyphen between word characters, which Zotero treats as a word separator and
+# then ORs rather than ANDs: 'oxygen-deprived' returned 175 matches against a
+# library where 'oxygen' matched 164, 'deprived' 16, and 'oxygen deprived' 5 --
+# exactly the union of the two halves.
+HYPHENATED_TERM = re.compile(r"\w-\w")
+
 PARENT_FETCH_BATCH = 50
 
 # Annotations hang off an attachment rather than off the work directly, so
@@ -543,8 +549,12 @@ def group_by_work(
         "- 'everything' additionally searches abstracts, the Extra field, note text, "
         "and the full text of attachments. Use it for topic and full-text search, "
         "where the term would not appear in a title.\n\n"
-        "Words match by prefix and multi-word queries match items containing all of "
-        "the words in any position, so 'cybor insect' matches 'Cyborg Insect'."
+        "Words match by prefix, and space-separated words must all be present "
+        "though not necessarily adjacent, so 'cybor insect' matches 'Cyborg "
+        "Insect'. A hyphen separates words and switches the match to OR: "
+        "'oxygen-deprived' matches anything containing 'oxygen' or 'deprived', "
+        "which is far broader than intended. Write hyphenated terms with a space "
+        "to require both halves."
     ),
 )
 def search_items(
@@ -552,8 +562,11 @@ def search_items(
         str,
         Field(
             description=(
-                "Text to match. Words match by prefix, and an item must contain every "
-                "word in the query, though not necessarily as a contiguous phrase."
+                "Text to match. Words match by prefix, and every space-separated "
+                "word must be present, though not necessarily as a contiguous "
+                "phrase. A hyphen separates words and ORs them instead, so "
+                "'oxygen-deprived' matches items containing either half; write it "
+                "with a space to require both."
             )
         ),
     ],
@@ -608,7 +621,16 @@ def search_items(
     results: Any = zot.items()
 
     if not results:
-        return "No items found matching your query."
+        # The default mode not searching abstracts is the likeliest reason a
+        # query that should have matched didn't, so say so where it is
+        # actionable rather than only in the tool description.
+        if qmode == "everything":
+            return "No items found matching your query."
+        return (
+            "No items found matching your query. This searched titles, creators, "
+            "and years only; retry with qmode='everything' to also search "
+            "abstracts, notes, and the full text of attachments."
+        )
 
     # Read before resolving parents, which issues further requests and so
     # replaces the response this reflects.
@@ -617,14 +639,21 @@ def search_items(
 
     groups = group_by_work(results, resolve_parents(zot, results))
 
-    # Header with search info
-    if len(groups) == matched:
-        found = f"Found {len(groups)} items."
-    else:
-        found = (
-            f"Found {len(groups)} items across {matched} matches, "
-            "some of which matched inside attachments or notes."
-        )
+    # Collapsing and resolution are independent facts and are reported
+    # separately. A search can resolve every result through a PDF while
+    # collapsing nothing (six child hits, no two sharing a parent), and gating
+    # the resolution clause on collapsing would leave that search describing
+    # itself exactly like a title-only one.
+    resolved = sum(1 for _, children in groups if children)
+
+    found = f"Found {len(groups)} items"
+    if len(groups) != matched:
+        found += f" across {matched} matches"
+    if resolved == len(groups):
+        found += ", all matched inside attachments or notes"
+    elif resolved:
+        found += f", {resolved} matched inside attachments or notes"
+    found += "."
 
     # Say explicitly when there is more to fetch. Item count alone cannot convey
     # this: grouping means a full page of matches can yield fewer items than
@@ -639,8 +668,19 @@ def search_items(
     header = [
         f"# Search Results for: '{query}'",
         found + (f" Using tag filter: {tag}" if tag else ""),
-        "Use item keys with zotero_item_metadata or zotero_item_fulltext for more details.\n",
     ]
+    # Zotero splits on the hyphen and ORs the halves, so a hyphenated term
+    # silently matches far more than the caller asked for. Worth saying here
+    # rather than only in the tool description, since the results look
+    # plausible and nothing else signals it.
+    if HYPHENATED_TERM.search(query):
+        header.append(
+            "Note: the hyphen in this query was read as OR, matching either half "
+            "separately. Replace it with a space to require both."
+        )
+    header.append(
+        "Use item keys with zotero_item_metadata or zotero_item_fulltext for more details.\n"
+    )
 
     # Format results
     formatted_results = []
