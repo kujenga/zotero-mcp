@@ -14,19 +14,8 @@ This project is a python server that implements the [Model Context Protocol (MCP
 This MCP server provides the following tools:
 
 - `zotero_search_items`: Search for items in your Zotero library using a text query
-- `zotero_item_metadata`: Get the complete metadata for a specific Zotero item
+- `zotero_item_metadata`: Get the complete metadata for a specific Zotero item, covering every populated field grouped into publication details, identifiers, timestamps, and library information
 - `zotero_item_fulltext`: Get the full text of a specific Zotero item (i.e. PDF contents)
-
-`zotero_item_metadata` returns every populated field on the item, grouped into
-publication details, identifiers, timestamps, and library information. Fields
-from Zotero schema versions newer than this server are still rendered, so
-upgrading Zotero never silently drops metadata.
-
-Citation keys are included wherever they are available, both in search results
-and in item metadata. Zotero 8 and later expose `citationKey` as a native field
-on nearly every item type; on earlier versions the key is read from the `Extra`
-field, where [Better BibTeX](https://retorque.re/zotero-better-bibtex/) writes
-pinned keys as `Citation Key: doe2024example`.
 
 These can be discovered and accessed through any MCP client or through the [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector).
 
@@ -160,3 +149,24 @@ npx @modelcontextprotocol/inspector \
 - https://pyzotero.readthedocs.io/en/latest/
 - https://www.zotero.org/support/dev/web_api/v3/start
 - https://modelcontextprotocol.io/llms-full.txt can be utilized by LLMs
+
+## Appendix: Zotero version compatibility
+
+Item metadata is rendered from whatever fields the Zotero API returns rather
+than from a fixed list, so no version gating is needed. Fields an older Zotero
+lacks are simply omitted, and fields from schema versions newer than this
+server still appear, under an "Other Fields" heading, so upgrading Zotero never
+silently drops metadata.
+
+Citation keys are the main place this matters. Zotero 8 promoted `citationKey`
+to a native field on nearly every item type and migrated existing keys into it.
+Earlier versions expose it only on `preprint`, `dataset`, and `standard`, so
+elsewhere the key is read out of the `Extra` field, where
+[Better BibTeX](https://retorque.re/zotero-better-bibtex/) pins it as
+`Citation Key: doe2024example`. The native field takes precedence when both are
+present.
+
+Searching by citation key works against the local Zotero API, whose quick
+search indexes the field. The Zotero Web API does not index it, so the same
+query returns nothing there even though the field is present in the data it
+returns.
