@@ -1,10 +1,13 @@
+import logging
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 
 from mcp.server import MCPServer
 from pydantic import Field
 
 from zotero_mcp.client import get_attachment_details, get_zotero_client
+
+logger = logging.getLogger(__name__)
 
 # Create an MCP server
 mcp = MCPServer("Zotero")
@@ -407,6 +410,145 @@ def get_item_fulltext(item_key: str) -> str:
         return f"Error retrieving item full text: {e!s}"
 
 
+# Child items are returned as search results in their own right, and under
+# qmode="everything" they are usually the majority: a term found in a PDF
+# surfaces the attachment, not the work it belongs to. Those hits are the whole
+# point of full-text search -- on a real library a single query returned 24
+# child items covering 22 works, 21 of which matched *only* through their
+# attachments -- so they are resolved back to their work rather than dropped.
+# A hyphen between word characters, which Zotero treats as a word separator and
+# then ORs rather than ANDs: 'oxygen-deprived' returned 175 matches against a
+# library where 'oxygen' matched 164, 'deprived' 16, and 'oxygen deprived' 5 --
+# exactly the union of the two halves.
+HYPHENATED_TERM = re.compile(r"\w-\w")
+
+PARENT_FETCH_BATCH = 50
+
+# Annotations hang off an attachment rather than off the work directly, so
+# walking up from an annotation takes two hops.
+PARENT_RESOLUTION_DEPTH = 2
+
+
+def fetch_items_by_key(zot: Any, keys: set[str]) -> dict[str, Any]:
+    """Fetch items by key, batched, as a key -> item mapping"""
+    fetched: dict[str, Any] = {}
+    ordered = sorted(keys)
+    for start in range(0, len(ordered), PARENT_FETCH_BATCH):
+        batch = ordered[start : start + PARENT_FETCH_BATCH]
+        try:
+            zot.add_parameters(itemKey=",".join(batch), limit=100)
+            results: Any = zot.items()
+        except Exception:
+            # Best-effort: an unresolved parent degrades to rendering the child
+            # item on its own, which is what this server did previously.
+            logger.debug("Failed to resolve items %s", batch, exc_info=True)
+            continue
+        for item in results:
+            fetched[item["key"]] = item
+    return fetched
+
+
+def resolve_parents(zot: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fetch the ancestors of any child items among the search results"""
+    resolved: dict[str, Any] = {}
+    pending = {
+        parent
+        for item in items
+        if (parent := item["data"].get("parentItem"))
+        and parent not in {i["key"] for i in items}
+    }
+    for _ in range(PARENT_RESOLUTION_DEPTH):
+        if not pending:
+            break
+        fetched = fetch_items_by_key(zot, pending)
+        resolved.update(fetched)
+        pending = {
+            parent
+            for item in fetched.values()
+            if (parent := item["data"].get("parentItem")) and parent not in resolved
+        }
+    return resolved
+
+
+def get_total_results(zot: Any) -> int | None:
+    """Get the total match count Zotero reported for the most recent request.
+
+    Comparing this against the results in hand is what distinguishes a complete
+    result set from one that `limit` truncated. Only reflects the request most
+    recently made through this client, so read it before issuing another.
+    """
+    try:
+        return int(zot.request.headers["Total-Results"])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # Header absent or unparseable; callers fall back to comparing against
+        # the requested limit.
+        return None
+
+
+def describe_child_match(child: dict[str, Any]) -> str:
+    """Describe where a child item's match occurred, for a search result line"""
+    data = child["data"]
+    item_type = data.get("itemType", "item")
+    key = child["key"]
+    if item_type == "attachment":
+        title = data.get("title") or data.get("filename")
+        return f"attachment full text{f' ({title})' if title else ''} `{key}`"
+    if item_type == "annotation":
+        return f"{data.get('annotationType', 'highlight')} annotation `{key}`"
+    return f"{item_type} `{key}`"
+
+
+class WorkMatch(NamedTuple):
+    """A work in the search results, with where its matches came from.
+
+    `direct` and `children` are both recorded because a work can match either
+    way or both, and collapsing them would make a work that only turned up
+    through its PDF indistinguishable from one that also matched on its title.
+    """
+
+    item: dict[str, Any]
+    children: list[dict[str, Any]]
+    direct: bool
+
+
+def group_by_work(
+    items: list[dict[str, Any]], resolved: dict[str, Any]
+) -> list[WorkMatch]:
+    """Group search results by the work they belong to, in first-match order.
+
+    A work matched both directly and through its attachments appears once. A
+    child whose parent could not be resolved stays on its own, so nothing that
+    matched is ever dropped from the results.
+    """
+    works: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    lookup = {item["key"]: item for item in items} | resolved
+
+    for item in items:
+        work = item
+        # Walk up to the top-level work, guarding against a cycle or a missing
+        # ancestor by bounding the climb.
+        for _ in range(PARENT_RESOLUTION_DEPTH):
+            parent_key = work["data"].get("parentItem")
+            if not parent_key or parent_key not in lookup:
+                break
+            work = lookup[parent_key]
+
+        key = work["key"]
+        if key not in works:
+            works[key] = {"item": work, "children": [], "direct": False}
+            order.append(key)
+        if work is item:
+            works[key]["direct"] = True
+        else:
+            works[key]["children"].append(item)
+
+    return [
+        WorkMatch(works[key]["item"], works[key]["children"], works[key]["direct"])
+        for key in order
+    ]
+
+
 # Search behaviour below was verified against both a local Zotero API and
 # api.zotero.org rather than taken from the docs, which are thin and in one
 # respect outdated: https://www.zotero.org/support/dev/web_api/v3/basics#searching
@@ -425,8 +567,12 @@ def get_item_fulltext(item_key: str) -> str:
         "- 'everything' additionally searches abstracts, the Extra field, note text, "
         "and the full text of attachments. Use it for topic and full-text search, "
         "where the term would not appear in a title.\n\n"
-        "Words match by prefix and multi-word queries match items containing all of "
-        "the words in any position, so 'cybor insect' matches 'Cyborg Insect'."
+        "Words match by prefix, and space-separated words must all be present "
+        "though not necessarily adjacent, so 'cybor insect' matches 'Cyborg "
+        "Insect'. A hyphen separates words and switches the match to OR: "
+        "'oxygen-deprived' matches anything containing 'oxygen' or 'deprived', "
+        "which is far broader than intended. Write hyphenated terms with a space "
+        "to require both halves."
     ),
 )
 def search_items(
@@ -434,8 +580,11 @@ def search_items(
         str,
         Field(
             description=(
-                "Text to match. Words match by prefix, and an item must contain every "
-                "word in the query, though not necessarily as a contiguous phrase."
+                "Text to match. Words match by prefix, and every space-separated "
+                "word must be present, though not necessarily as a contiguous "
+                "phrase. A hyphen separates words and ORs them instead, so "
+                "'oxygen-deprived' matches items containing either half; write it "
+                "with a space to require both."
             )
         ),
     ],
@@ -468,9 +617,11 @@ def search_items(
         int | None,
         Field(
             description=(
-                "Maximum number of results. Worth raising when qmode is 'everything', "
-                "where several attachments or notes belonging to one work can each "
-                "match separately."
+                "Maximum number of matches to retrieve. This caps matches rather "
+                "than items, and several attachments or notes belonging to one work "
+                "can each match separately, so a search can return fewer items than "
+                "this number while still having more to fetch. The result header "
+                "reports the total whenever that happens."
             )
         ),
     ] = 10,
@@ -488,21 +639,88 @@ def search_items(
     results: Any = zot.items()
 
     if not results:
-        return "No items found matching your query."
+        # The default mode not searching abstracts is the likeliest reason a
+        # query that should have matched didn't, so say so where it is
+        # actionable rather than only in the tool description.
+        if qmode == "everything":
+            return "No items found matching your query."
+        return (
+            "No items found matching your query. This searched titles, creators, "
+            "and years only; retry with qmode='everything' to also search "
+            "abstracts, notes, and the full text of attachments."
+        )
 
-    # Header with search info
+    # Read before resolving parents, which issues further requests and so
+    # replaces the response this reflects.
+    total_matches = get_total_results(zot)
+    matched = len(results)
+
+    groups = group_by_work(results, resolve_parents(zot, results))
+
+    # Collapsing and resolution are independent facts and are reported
+    # separately. A search can resolve every result through a PDF while
+    # collapsing nothing (six child hits, no two sharing a parent), and gating
+    # the resolution clause on collapsing would leave that search describing
+    # itself exactly like a title-only one.
+    # Counted over matches, not works, and phrased to attach to the match count
+    # it follows. Counting works here would let "all" describe a result set
+    # whose matches were only partly child hits: four works each with one PDF
+    # hit, two of which also matched on their titles, is 8 of 10 matches rather
+    # than all of them.
+    child_matches = sum(1 for item in results if item["data"].get("parentItem"))
+
+    found = f"Found {len(groups)} items"
+    if child_matches:
+        found += f" across {matched} matches, "
+        found += "all" if child_matches == matched else str(child_matches)
+        found += " of which were inside attachments or notes"
+    elif len(groups) != matched:
+        found += f" across {matched} matches"
+    found += "."
+
+    # Say explicitly when there is more to fetch. Item count alone cannot convey
+    # this: grouping means a full page of matches can yield fewer items than
+    # requested, so a short list is not evidence the result set was exhausted.
+    if total_matches is not None and total_matches > matched:
+        found += (
+            f" These are the first {matched} of {total_matches} matches"
+            " -- raise `limit` to see the rest."
+        )
+    elif total_matches is None and limit is not None and matched >= limit:
+        found += f" This reached the limit of {limit} matches, so there may be more."
     header = [
         f"# Search Results for: '{query}'",
-        f"Found {len(results)} items." + (f" Using tag filter: {tag}" if tag else ""),
-        "Use item keys with zotero_item_metadata or zotero_item_fulltext for more details.\n",
+        found + (f" Using tag filter: {tag}" if tag else ""),
     ]
+    # Zotero splits on the hyphen and ORs the halves, so a hyphenated term
+    # silently matches far more than the caller asked for. Worth saying here
+    # rather than only in the tool description, since the results look
+    # plausible and nothing else signals it.
+    if HYPHENATED_TERM.search(query):
+        header.append(
+            "Note: the hyphen in this query was read as OR, matching either half "
+            "separately. Replace it with a space to require both."
+        )
+    header.append(
+        "Use item keys with zotero_item_metadata or zotero_item_fulltext for more details.\n"
+    )
 
     # Format results
     formatted_results = []
-    for i, item in enumerate(results):
+    for i, group in enumerate(groups):
+        item = group.item
         data = item["data"]
         item_key = item.get("key", "")
         item_type = data.get("itemType", "unknown")
+
+        # Only worth a line when a child matched, since that provenance is not
+        # otherwise visible. "this item" is listed alongside so a work that
+        # matched both ways stays distinguishable from one found only in a PDF.
+        matched_in = None
+        if group.children:
+            sources = ["this item"] if group.direct else []
+            sources += [describe_child_match(child) for child in group.children]
+            matched_in = "**Matched in**: " + ", ".join(sources)
 
         # Special handling for notes
         if item_type == "note":
@@ -539,6 +757,8 @@ def search_items(
             # Add parent item reference if available
             if parent_item := data.get("parentItem"):
                 entry.insert(2, f"**Parent Item**: `{parent_item}`")
+            if matched_in:
+                entry.insert(2, matched_in)
 
             # Add tags if present (limited to first 5)
             if tags := data.get("tags"):
@@ -584,6 +804,9 @@ def search_items(
 
         if source := get_source(data):
             entry.append(f"**Source**: {source}")
+
+        if matched_in:
+            entry.append(matched_in)
 
         if abstract:
             entry.append(f"\n{abstract}")
