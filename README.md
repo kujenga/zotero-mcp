@@ -28,9 +28,6 @@ This server can either run against either a [local API offered by the Zotero des
 1. Open Zotero and open "Zotero Settings"
 1. Under the "Advanced" tab, check the box that says "Allow other applications on this computer to communicate with Zotero".
 
-> [!IMPORTANT]
-> For access to the `/fulltext` endpoint on the local API which allows retrieving the full content of items in your library, you'll need to install a [Zotero Beta Build](https://www.zotero.org/support/beta_builds) (as of 2025-03-30). Once 7.1 is released this will no longer be the case. See https://github.com/zotero/zotero/pull/5004 for more information. If you do not want to do this, use the Web API instead.
-
 To use the Zotero Web API, you'll need to create an API key and find your Library ID (usually your User ID) in your Zotero account settings here: <https://www.zotero.org/settings/keys>
 
 These are the available configuration options:
