@@ -1,5 +1,7 @@
 # Model Context Protocol server for Zotero
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fkujenga%2Fzotero-mcp.svg)](https://mcptoplist.com/server/glama%2Fkujenga%2Fzotero-mcp)
+
 [![GitHub branch status](https://img.shields.io/github/check-runs/kujenga/zotero-mcp/main)](https://github.com/kujenga/zotero-mcp/actions)
 [![PyPI - Version](https://img.shields.io/pypi/v/zotero-mcp)](https://pypi.org/project/zotero-mcp/)
 
