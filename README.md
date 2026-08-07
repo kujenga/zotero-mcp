@@ -3,6 +3,11 @@
 [![GitHub branch status](https://img.shields.io/github/check-runs/kujenga/zotero-mcp/main)](https://github.com/kujenga/zotero-mcp/actions)
 [![PyPI - Version](https://img.shields.io/pypi/v/zotero-mcp)](https://pypi.org/project/zotero-mcp/)
 
+<!-- Ownership verification marker for the official MCP registry, which
+matches it against the name in server.json when this README is rendered on
+PyPI: https://modelcontextprotocol.io/registry/package-types -->
+<!-- mcp-name: io.github.kujenga/zotero-mcp -->
+
 This project is a python server that implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) for [Zotero](https://www.zotero.org/), giving you access to your Zotero library within AI assistants. It is intended to implement a small but maximally useful set of interactions with Zotero for use with [MCP clients](https://modelcontextprotocol.io/clients).
 
 <a href="https://glama.ai/mcp/servers/jknz38ntu4">
@@ -118,6 +123,16 @@ To run the test suite:
 ```bash
 uv run pytest
 ```
+
+### Releasing
+
+1. Bump the version in `pyproject.toml` and `server.json` (two places: the
+   server version and the package version).
+1. Publish to PyPI with `make publish`.
+1. Publish updated metadata to the [official MCP
+   registry](https://github.com/modelcontextprotocol/registry) with `make
+   publish-mcp`, authenticating first with `mcp-publisher login github` if
+   needed.
 
 ### Docker Development
 

@@ -1,6 +1,6 @@
 # Utilities for managing zotero-mcp
 
-.PHONY: run run-local test lint format inspector publish-test publish
+.PHONY: run run-local test lint format inspector publish-test publish publish-mcp
 
 run:
 	uv run zotero-mcp
@@ -29,6 +29,13 @@ publish:
 	uv build
 	uvx twine upload \
 		--password="$$(op read "op://Private/PyPi/API/token")" dist/*
+
+# Publish server metadata to the official MCP registry. Run after `publish`,
+# since the registry validates ownership against the mcp-name marker in the
+# README as rendered on PyPI for the version listed in server.json. Requires
+# a prior `mcp-publisher login github`.
+publish-mcp:
+	mcp-publisher publish
 
 # To validate the release process/changes to it
 publish-test:
