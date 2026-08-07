@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/kujenga-zotero-mcp-badge.png)](https://mseep.ai/app/kujenga-zotero-mcp)
+
 # Model Context Protocol server for Zotero
 
 [![GitHub branch status](https://img.shields.io/github/check-runs/kujenga/zotero-mcp/main)](https://github.com/kujenga/zotero-mcp/actions)
