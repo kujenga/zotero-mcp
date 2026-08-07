@@ -1,0 +1,49 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.kujenga/zotero-mcp",
+  "title": "Zotero MCP",
+  "description": "Search your Zotero library, retrieve item metadata, and read full text from AI assistants.",
+  "repository": {
+    "url": "https://github.com/kujenga/zotero-mcp",
+    "source": "github"
+  },
+  "version": "0.3.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "zotero-mcp",
+      "version": "0.3.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ZOTERO_LOCAL",
+          "description": "Use the local API from the Zotero desktop app instead of the Web API. Requires Zotero to be running with 'Allow other applications on this computer to communicate with Zotero' enabled under Settings > Advanced.",
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "ZOTERO_API_KEY",
+          "description": "Zotero Web API key from https://www.zotero.org/settings/keys. Not required when ZOTERO_LOCAL is true.",
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "ZOTERO_LIBRARY_ID",
+          "description": "Zotero library ID (your user ID for user libraries). Not required when ZOTERO_LOCAL is true.",
+          "format": "string"
+        },
+        {
+          "name": "ZOTERO_LIBRARY_TYPE",
+          "description": "Whether ZOTERO_LIBRARY_ID refers to a user or group library.",
+          "format": "string",
+          "default": "user",
+          "choices": ["user", "group"]
+        }
+      ]
+    }
+  ]
+}
