@@ -1,5 +1,6 @@
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
@@ -41,70 +42,91 @@ class AttachmentDetails(BaseModel):
     content_type: str
 
 
-def get_attachment_details(
+@dataclass(frozen=True)
+class AttachmentLookup:
+    """Outcome of looking up the primary attachment for a Zotero item."""
+
+    attachment: AttachmentDetails | None = None
+    error: str | None = None
+
+
+def _attachment_sort_key(
+    child_data: dict[str, Any], index: int
+) -> tuple[int, int, str, int]:
+    """Rank attachment candidates deterministically without relying on hashes."""
+    link_mode_rank = 0 if child_data.get("linkMode") == "imported_file" else 1
+    date_added = child_data.get("dateAdded") or ""
+    date_rank = 0 if date_added else 1
+    return (link_mode_rank, date_rank, date_added, index)
+
+
+def lookup_attachment_details(
     zot: zotero.Zotero,
     item: dict[str, Any],
-) -> AttachmentDetails | None:
-    """Get attachment ID and content type for a Zotero item"""
+) -> AttachmentLookup:
+    """Resolve the best attachment for a Zotero item, capturing lookup errors."""
     data = item.get("data", {})
     item_type = data.get("itemType")
 
     # Direct attachment - check if it's a PDF or other supported type
     if item_type == "attachment":
-        content_type = data.get("contentType")
-        return AttachmentDetails(
-            key=data.get("key"),
-            content_type=content_type,
+        content_type = data.get("contentType") or ""
+        return AttachmentLookup(
+            attachment=AttachmentDetails(
+                key=data.get("key"),
+                content_type=content_type,
+            )
         )
 
     # For regular items, look for child attachments
     try:
         children: Any = zot.children(data.get("key", ""))
-        # Group attachments by content type and size
-        pdfs = []
-        htmls = []
-        others = []
+        pdfs: list[tuple[tuple[int, int, str, int], str, str]] = []
+        htmls: list[tuple[tuple[int, int, str, int], str, str]] = []
+        others: list[tuple[tuple[int, int, str, int], str, str]] = []
 
-        for child in children:
+        for index, child in enumerate(children):
             child_data = child.get("data", {})
             if child_data.get("itemType") == "attachment":
-                content_type = child_data.get("contentType")
-                file_size = child_data.get("md5", "")  # Use md5 as proxy for size
+                key = child_data.get("key")
+                if not key:
+                    continue
+                content_type = child_data.get("contentType") or ""
+                candidate = (_attachment_sort_key(child_data, index), key, content_type)
 
                 if content_type == "application/pdf":
-                    pdfs.append((child_data.get("key"), content_type, file_size))
+                    pdfs.append(candidate)
                 elif content_type == "text/html":
-                    htmls.append((child_data.get("key"), content_type, file_size))
+                    htmls.append(candidate)
                 else:
-                    others.append((child_data.get("key"), content_type, file_size))
+                    others.append(candidate)
 
-        # Return first match in priority order
-        if pdfs:
-            pdfs.sort(key=lambda x: x[2], reverse=True)
-            return AttachmentDetails(
-                key=pdfs[0][0],
-                content_type=pdfs[0][1],
-            )
-        if htmls:
-            htmls.sort(key=lambda x: x[2], reverse=True)
-            return AttachmentDetails(
-                key=htmls[0][0],
-                content_type=htmls[0][1],
-            )
-        if others:
-            others.sort(key=lambda x: x[2], reverse=True)
-            return AttachmentDetails(
-                key=others[0][0],
-                content_type=others[0][1],
-            )
-    except Exception:
-        # Best-effort lookup: callers treat a missing attachment as a normal
-        # outcome, so log for diagnosis rather than surfacing the failure and
-        # losing the metadata we can still return.
+        for bucket in (pdfs, htmls, others):
+            if bucket:
+                _, key, content_type = min(bucket, key=lambda entry: entry[0])
+                return AttachmentLookup(
+                    attachment=AttachmentDetails(
+                        key=key,
+                        content_type=content_type,
+                    )
+                )
+    except Exception as exc:
+        # Best-effort lookup: callers still return item metadata, so surface
+        # the lookup error separately instead of pretending no attachment exists.
         logger.debug(
             "Failed to resolve attachments for item %s",
             data.get("key", ""),
             exc_info=True,
         )
+        error_detail = str(exc) or type(exc).__name__
+        return AttachmentLookup(error=error_detail)
 
-    return None
+    return AttachmentLookup()
+
+
+def get_attachment_details(
+    zot: zotero.Zotero,
+    item: dict[str, Any],
+) -> AttachmentDetails | None:
+    """Get attachment ID and content type for a Zotero item"""
+    return lookup_attachment_details(zot, item).attachment

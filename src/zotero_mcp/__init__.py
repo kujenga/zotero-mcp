@@ -5,7 +5,10 @@ from typing import Annotated, Any, Literal, NamedTuple
 from mcp.server import MCPServer
 from pydantic import Field
 
-from zotero_mcp.client import get_attachment_details, get_zotero_client
+from zotero_mcp.client import (
+    get_zotero_client,
+    lookup_attachment_details,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -376,7 +379,8 @@ def get_item_fulltext(item_key: str) -> str:
             return f"No item found with key: {item_key}"
 
         # Fetch full-text content
-        attachment = get_attachment_details(zot, item)
+        attachment_lookup = lookup_attachment_details(zot, item)
+        attachment = attachment_lookup.attachment
 
         # Prepare header with metadata
         header = format_item(item)
@@ -398,6 +402,13 @@ def get_item_fulltext(item_key: str) -> str:
             else:
                 # Clear error message when text extraction isn't possible
                 full_text = "\n\n## Document Content\n\n[⚠️ Attachment is available but text extraction is not possible. The document may be scanned as images or have other restrictions that prevent text extraction.]"
+        elif attachment_lookup.error is not None:
+            attachment_info = (
+                "\n\n## Attachment Information\n"
+                f"[⚠️ Couldn't list attachments: {attachment_lookup.error}. "
+                "Metadata above is complete; retry for full text.]"
+            )
+            full_text = ""
         else:
             attachment_info = "\n\n## Attachment Information\n[❌ No suitable attachment found for full text extraction. This item may not have any attached files or they may not be in a supported format.]"
             full_text = ""
